@@ -1,0 +1,75 @@
+module Draw_points
+(
+    input logic PixelClk, DrawGame,
+    input logic [9:0] DrawX, DrawY,                                         // Current pixel coordinates
+    input logic [9:0] P1_score_hex, P2_score_hex,
+    input logic [9:0] P1score_x, P2score_x, Score_y,                        // 0-indexed start points
+    output logic [7:0] VGA_R, VGA_G, VGA_B,                                 // VGA RGB output
+    output logic Is_score,
+    output logic Is_transparent
+);
+
+    logic [14:0] write_address, read_address, read_address_next;
+    logic [23:0] rgb;
+    logic [3:0] number;
+    logic color;
+
+    numbersRAM numbers
+    (
+        .data_In(1'b0), 
+        .write_address(write_address),
+        .read_address(read_address), 
+		.we(1'b0),
+        .Clk(PixelClk),
+        .data_Out(color)
+    );
+
+    always_ff @(posedge PixelClk)
+    begin
+        read_address <= read_address_next;
+    end
+    assign read_address_next = ((DrawY - Score_y) * 10'd300) + (number * 10'd30);
+
+    // color processing
+    // numbers sheet encoding
+    always_comb
+    begin
+        rgb = 24'd0;
+        Is_transparent = 1'b0;
+        case (color)
+            1'b0: Is_transparent = 1'b1;  
+            1'b1: rgb = 24'hffffff;
+        endcase
+    end
+
+    assign VGA_R = rgb[23:16];
+    assign VGA_G = rgb[15:8];
+    assign VGA_B = rgb[7:0];
+
+    always_comb
+    begin
+        Is_score = 1'b1;
+        number = 4'd0;
+        if((DrawY >= Score_y) && DrawY < (Score_y + 10'd30))
+        begin
+            // p1 score drawing range
+            if((DrawX >= P1score_x) && (DrawX < P1score_x + 10'd30))
+                number = P1_score_hex[11:8];
+            else if ((DrawX >= P1score_x + 10'd40) && (DrawX < P1score_x + 10'd70))
+                number = P1_score_hex[7:4];
+            else if ((DrawX >= P1score_x + 10'd80) && (DrawX < P1score_x + 10'd110))
+                number = P1_score_hex[3:0];
+            // p2 score drawing range
+            else if ((DrawX >= P2score_x) && (DrawX < P2score_x + 10'd30))
+                number = P2_score_hex[11:8];
+            else if ((DrawX >= P2score_x + 10'd40) && (DrawX < P2score_x + 10'd70))
+                number = P2_score_hex[7:4];
+            else if ((DrawX >= P2score_x + 10'd80) && (DrawX < P2score_x + 10'd110))
+                number = P2_score_hex[3:0];
+            else 
+                Is_score = 1'b0;
+        end
+        else 
+            Is_score = 1'b0;
+    end
+endmodule

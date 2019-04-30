@@ -1,0 +1,80 @@
+module Draw_start 
+(
+    input logic FrameClk, PixelClk, Reset_h,
+    input logic [9:0] DrawX, DrawY,                     // Current pixel coordinates
+    input logic [9:0] TitleX, TitleY, PromptX, PromptY  // Placement of text
+    output logic [7:0] VGA_R, VGA_G, VGA_B              // VGA RGB output
+);
+
+    logic [3:0] write_dummy;
+    logic [16:0] write_address, read_address, read_address_next;
+    logic [3:0] color;
+
+    logic is_title, is_prompt, is_transparent;
+    logic [16:0] title_address, prompt_address;
+    logic [23:0] sprite_rgb;
+ 
+    textRAM alphanumeric
+    (
+        .data_In(write_dummy), 
+        .write_address(write_address),
+        .read_address(read_address), 
+		.we(1'b0),
+        .Clk(PixelClk),
+        .data_Out(color)
+    );
+
+    always_ff @(posedge PixelClk)
+    begin
+        read_address <= read_address_next;
+    end
+
+    always_comb
+    begin
+        if(is_title | is_prompt)
+        begin
+            VGA_R = sprite_rgb[23:16]
+            VGA_G = sprite_rgb[15:8]
+            VGA_B = sprite_rgb[7:0]
+        end
+        else // background blue
+        begin 
+            VGA_R = 8'h66;
+            VGA_G = 8'h66;
+            VGA_B = 8'hff;
+        end
+    end
+
+    // 600 x 250 spritesheet
+    always_comb
+    begin
+        read_address_next <= 10b'
+        is_title = 1'b0;
+        is_prompt = 1'b0;
+        // title is in a 160 x 65 box
+        if((DrawX >= TitleX) && (DrawX < TitleX + 10'd160) && (DrawY >= TitleY) && (DrawY < TitleY + 10'd65))
+        begin
+            is_title = 1'b1;
+            read_address_next = ((DrawY - TitleY) * 10'd600) + (DrawX - TitleX);
+        end
+        // prompt is in a 565 x 50 box
+        else if((DrawX >= PromptX) && (DrawX < PromptX + 10'd565) && (DrawY >= PromptY) && (DrawY < PromptY + 10'd50))
+        begin
+            is_prompt = 1'b1;
+            read_address_next = (((DrawY - PromptY) * 10'd600) + 10'd100) + (DrawX - PromptX);
+        end
+    end
+
+    // color processing
+    always_comb
+    begin
+        sprite_rgb = 24'd0;
+        is_transparent = 1'b0;
+        case (color)
+            4'h0: is_transparent = 1'b1;  
+            4'h1: sprite_rgb = 24'hffffff;
+            default: is_transparent = 1'b1;
+        endcase
+    end
+    
+endmodule

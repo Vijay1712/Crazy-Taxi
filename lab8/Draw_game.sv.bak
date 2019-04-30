@@ -1,0 +1,161 @@
+//-------------------------------------------------------------------------
+//    Color_Mapper.sv                                                    --
+//    Stephen Kempf                                                      --
+//    3-1-06                                                             --
+//                                                                       --
+//    Modified by David Kesler  07-16-2008                               --
+//    Translated by Joe Meng    07-07-2013                               --
+//    Modified by Po-Han Huang  10-06-2017                               --
+//                                                                       --
+//    Fall 2017 Distribution                                             --
+//                                                                       --
+//    For use with ECE 385 Lab 8                                         --
+//    University of Illinois ECE Department                              --
+//-------------------------------------------------------------------------
+
+// color_mapper: Decide which color to be output to VGA for each pixel.
+module  Draw_game
+( 
+    input logic FrameClk, PixelClk, Reset_h, DrawGame,
+    input logic [9:0] DrawX, DrawY,               // Current pixel coordinates
+    input logic [15:0] Keycode,
+    output logic [7:0] VGA_R, VGA_G, VGA_B        // VGA RGB output
+);
+
+    logic is_sprite, is_transparent;
+    logic [23:0] sprite_rgb, background_rgb;
+    logic [7:0] sprite_red, sprite_green, sprite_blue, background_red, background_green, background_blue;
+    logic [15:0] write_address, read_address, read_address_next;
+
+    // cars
+    logic [15:0] car1_address, car2_address;
+    logic is_car1, is_car2;
+    logic [9:0] car1_x, car1_y, car1_x_next, car1_y_next, car2_x, car2_y, car2_x_next, car2_y_next;
+
+    // obstacles
+    logic [15:0] obstacle1_address, obstacle2_address, obstacle3_address;
+    logic is_obstacle1, is_obstacle2, is_obstacle3;
+
+    logic [3:0] color, write_dummy;
+    
+
+    // Note: dimensions of sprite sheet is 600x100 pixels
+    frameRAM sprite_memory(.data_In(write_dummy), .write_address(write_address), .read_address(read_address), .we(1'b0), .Clk(PixelClk), .data_Out(color));
+
+    // draw cars
+    Draw_car1 redCar(.PixelClk(PixelClk), .CarX(car1_x), .CarY(car1_y), .DrawX(DrawX), .DrawY(DrawY), .IsCar(is_car1), .ReadAddress(car1_address));
+    Draw_car2 purpleCar(.PixelClk(PixelClk), .CarX(car2_x), .CarY(car2_y), .DrawX(DrawX), .DrawY(DrawY), .IsCar(is_car2), .ReadAddress(car2_address));
+
+    // move cars
+    Move_car moveRedCar(.Keycode(Keycode), .Up(8'h1a), .Left(8'h04), .Down(8'h16), .Right(8'h07), .CarX(car1_x), .CarY(car1_y), .CarX_next(car1_x_next), .CarY_next(car1_y_next));
+    Move_car movePurpleCar(.Keycode(Keycode), .Up(8'h52), .Left(8'h50), .Down(8'h51), .Right(8'h4f), .CarX(car2_x), .CarY(car2_y), .CarX_next(car2_x_next), .CarY_next(car2_y_next));
+
+    // draw obstacles
+    Draw_obstacle lane1(.PixelClk(PixelClk), .ObstacleX(10'd200), .ObstacleY(10'd200), .DrawX(DrawX), .DrawY(DrawY), .IsObstacle(is_obstacle1), .ReadAddress(obstacle1_address));
+    Draw_obstacle lane2(.PixelClk(PixelClk), .ObstacleX(10'd320), .ObstacleY(10'd200), .DrawX(DrawX), .DrawY(DrawY), .IsObstacle(is_obstacle2), .ReadAddress(obstacle2_address));
+    Draw_obstacle lane3(.PixelClk(PixelClk), .ObstacleX(10'd430), .ObstacleY(10'd200), .DrawX(DrawX), .DrawY(DrawY), .IsObstacle(is_obstacle3), .ReadAddress(obstacle3_address));
+    
+    // Output colors to VGA
+    assign sprite_red = sprite_rgb[23:16];
+    assign sprite_green = sprite_rgb[15:8];
+    assign sprite_blue = sprite_rgb[7:0];
+
+    assign background_red = background_rgb[23:16];
+    assign background_green = background_rgb[15:8];
+    assign background_blue = background_rgb[7:0];
+
+    always_comb
+    begin
+        if(is_sprite & ~is_transparent)
+        begin
+            VGA_R = sprite_red;
+            VGA_G = sprite_green;
+            VGA_B = sprite_blue;
+        end
+        else
+        begin
+            VGA_R = background_red;
+            VGA_G = background_green;
+            VGA_B = background_blue;
+        end
+    end
+	 
+    always_ff @(posedge PixelClk)
+    begin
+        read_address <= read_address_next;
+    end
+
+    // grab the color of the current pixel in the game
+    always_comb
+    begin
+        is_sprite = 1'b1;
+        background_rgb = 24'h000000;
+        read_address_next = 16'd0;
+        if (is_car1)
+            read_address_next = car1_address;
+		else if (is_car2)
+			read_address_next = car2_address;
+        else if (is_obstacle1)
+            read_address_next = obstacle1_address;
+        else if (is_obstacle2)
+            read_address_next = obstacle2_address;
+        else if (is_obstacle3)
+            read_address_next = obstacle3_address;
+        else
+            is_sprite = 1'b0;
+            // background color handling goes here!
+            if((DrawX < 155) || (DrawX >= (640 - 155)))
+                background_rgb = 24'h56e60e; // lawn
+            else if(((DrawX >= 254) && (DrawX <= 269)) || ((DrawX >= 369) && (DrawX <= 384)))
+                background_rgb = 24'hfff84b; // dividers
+            else 
+                background_rgb = 24'h000000; // road
+    end
+
+    // car motion
+    always_ff @(posedge FrameClk)
+    begin
+        if(Reset_h | ~DrawGame) // don't move the cars when not in game
+        begin 
+            car1_x <= 10'd205; // lane 1
+            car1_y <= 10'd429;
+            car2_x <= 10'd434; // lane 3
+            car2_y <= 10'd429;
+        end
+        else
+        begin
+            car1_x <= car1_x_next;
+            car1_y <= car1_y_next;
+            car2_x <= car2_x_next;
+            car2_y <= car2_y_next;
+        end
+    end
+
+    // 4-bit sprite sheet encoding to 24-bit rgb
+    always_comb
+    begin
+        is_transparent = 1'b0;
+        sprite_rgb = 24'd0;
+        case(color)
+            4'd0: is_transparent = 1'b1; // black	
+            4'd1: sprite_rgb = 24'hc8f3f7; // light blue
+            4'd2: sprite_rgb = 24'hfff84b; // yellow
+            4'd3: sprite_rgb = 24'h605cf4; // purple
+            4'd4: sprite_rgb = 24'h8c98f8; // light purple
+            4'd5: sprite_rgb = 24'he01800; // red
+            4'd6: sprite_rgb = 24'hfc4000; // dark orange
+            4'd7: sprite_rgb = 24'hc00800; // dark red
+            4'd8: sprite_rgb = 24'hf0e000; // dark yellow  
+            4'd9: sprite_rgb = 24'h584cf4; // dark purple
+            4'd10: sprite_rgb = 24'h00ac00; // dark green
+            4'd11: sprite_rgb = 24'h00f000; // green
+            4'd12: sprite_rgb = 24'hf1693a; // orange
+            default: 
+            begin
+                is_transparent = 1'b0; 
+                sprite_rgb = 24'h000000;
+            end
+        endcase
+    end
+    
+endmodule
